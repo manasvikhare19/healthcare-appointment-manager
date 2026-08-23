@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: meridian-clinic
+    env: node
+    plan: free
+    buildCommand: npm run render-build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 2h
+      - key: REFRESH_TOKEN_DAYS
+        value: 7
+      - key: SLOT_HOLD_MINUTES
+        value: 5
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_ENABLED
+        value: "true"
+      - key: LLM_PROVIDER
+        value: none
+      - key: CALENDAR_ENABLED
+        value: "false"

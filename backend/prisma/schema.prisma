@@ -1,0 +1,164 @@
+// Healthcare Appointment & Follow-up Manager — Data model
+// Defaulted to SQLite for instant zero-config local development.
+// For production / cloud deployment (e.g. Render, Railway, Supabase, Neon),
+// change provider to "postgresql" and set DATABASE_URL to your postgres connection string.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  phone         String?
+  role          String   // "PATIENT" | "DOCTOR" | "ADMIN"
+  googleRefreshToken String? // set once the user completes Google Calendar OAuth
+  createdAt     DateTime @default(now())
+
+  doctorProfile DoctorProfile?
+  appointments  Appointment[]      @relation("PatientAppointments")
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// DoctorProfile.userId links to a User with role=DOCTOR.
+// Admin creates/manages these records (specialisation, working hours, slot duration, leave).
+model DoctorProfile {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialisation     String
+  bio                String?
+  slotDurationMinutes Int     @default(30)
+  // Working window, stored as minutes-from-midnight so slot math never touches timezone strings.
+  workStartMinutes   Int      @default(540)  // 09:00
+  workEndMinutes     Int      @default(1020) // 17:00
+  // Comma-separated 3-letter days, e.g. "MON,TUE,WED,THU,FRI"
+  workingDays        String   @default("MON,TUE,WED,THU,FRI")
+  createdAt          DateTime @default(now())
+
+  appointments Appointment[] @relation("DoctorAppointments")
+  leaves       DoctorLeave[]
+  slotLocks    SlotLock[]
+}
+
+model DoctorLeave {
+  id        String   @id @default(uuid())
+  doctorId  String
+  doctor    DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  date      String   // "YYYY-MM-DD" — a whole-day leave entry
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([doctorId, date])
+}
+
+// The concurrency-safety primitive. A row here is the single source of
+// truth for "is this doctor's slot taken". The unique constraint on
+// (doctorId, slotStart) is what actually prevents double-booking under
+// simultaneous requests — see SYSTEM_DESIGN.md.
+model SlotLock {
+  id            String         @id @default(uuid())
+  doctorId      String
+  doctor        DoctorProfile  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  slotStart     DateTime
+  status        String         @default("HELD") // "HELD" | "CONFIRMED"
+  appointmentId String?        @unique
+  appointment   Appointment?   @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  expiresAt     DateTime?      // set only while HELD; null once CONFIRMED
+  createdAt     DateTime       @default(now())
+
+  @@unique([doctorId, slotStart])
+}
+
+model Appointment {
+  id                String            @id @default(uuid())
+  patientId         String
+  patient           User              @relation("PatientAppointments", fields: [patientId], references: [id])
+  doctorId          String
+  doctor            DoctorProfile     @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  slotStart         DateTime
+  slotEnd           DateTime
+  status            String            @default("HELD") // "HELD" | "CONFIRMED" | "CANCELLED" | "LEAVE_CANCELLED" | "COMPLETED"
+
+  // Pre-visit
+  symptomsText      String?
+  preVisitSummary   String?           // JSON: { urgency, chiefComplaint, suggestedQuestions[] }
+  urgencyLevel      String?           // "Low" | "Medium" | "High" — pulled out for fast filtering/sorting
+
+  // Post-visit
+  doctorNotes       String?
+  prescriptionText  String?
+  postVisitSummary  String?           // JSON: { summary, medicationSchedule[], followUpSteps[] }
+
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  slotLock          SlotLock?
+  emailLogs         EmailLog[]
+  reminders         MedicationReminder[]
+  calendarEvent     CalendarEvent?
+
+  @@index([doctorId, slotStart])
+  @@index([patientId])
+}
+
+model CalendarEvent {
+  id              String   @id @default(uuid())
+  appointmentId   String   @unique
+  appointment     Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  patientEventId  String?  // Google Calendar event id on the patient's calendar
+  doctorEventId   String?  // Google Calendar event id on the doctor's calendar
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Every outbound email is logged here first, then dispatched — so a
+// crashed process or an SMTP outage never silently drops a notification.
+// A background job retries anything PENDING/FAILED with backoff.
+model EmailLog {
+  id                    String      @id @default(uuid())
+  toEmail               String
+  subject               String
+  body                  String
+  type                  String      // BOOKING_CONFIRMATION | REMINDER | CANCELLATION | LEAVE_NOTICE | MEDICATION_REMINDER
+  status                String      @default("PENDING") // "PENDING" | "SENT" | "FAILED"
+  attempts              Int         @default(0)
+  lastError             String?
+  relatedAppointmentId  String?
+  appointment           Appointment? @relation(fields: [relatedAppointmentId], references: [id], onDelete: SetNull)
+  createdAt             DateTime    @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  @@index([status])
+}
+
+model MedicationReminder {
+  id              String         @id @default(uuid())
+  appointmentId   String
+  appointment     Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  patientId       String
+  medicationText  String         // e.g. "Amoxicillin 500mg"
+  frequencyHours  Int            // reminder cadence derived from prescription frequency
+  nextRunAt       DateTime
+  remainingCount  Int            @default(1)
+  status          String         @default("ACTIVE") // "ACTIVE" | "COMPLETED" | "CANCELLED"
+  createdAt       DateTime       @default(now())
+
+  @@index([status, nextRunAt])
+}

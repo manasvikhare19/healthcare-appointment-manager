@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Production build
+frontend/dist/
+dist/
+
+# Local databases & logs
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+*.log
+npm-debug.log*
+
+# Environment files
+backend/.env
+frontend/.env.local
+.env
+
+# Staging & temp
+staging_zip/
+.DS_Store
