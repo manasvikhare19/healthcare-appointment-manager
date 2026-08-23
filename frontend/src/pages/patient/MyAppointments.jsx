@@ -4,6 +4,10 @@ import { Banner, StatusBadge, UrgencyBadge } from '../../components/Shared.jsx';
 
 import { CalendarDays, Clock3, Plus } from 'lucide-react';
 
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function parseDateBlock(iso) {
   const d = new Date(iso);
   const day = d.getDate();
