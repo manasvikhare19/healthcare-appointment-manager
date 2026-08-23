@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Full-stack Healthcare Appointment & Follow-up Manager platform with LLM triage, calendar sync, and dual-party notifications.",
   "scripts": {
-    "render-build": "npm --prefix backend install && cd backend && npx prisma generate && npx prisma db push && node prisma/seed.js && cd .. && npm --prefix frontend install && npm --prefix frontend run build",
+    "render-build": "npm --prefix backend install && cd backend && npx prisma generate && npx prisma db push && node prisma/seed.js && cd .. && npm --prefix frontend install --include=dev && npm --prefix frontend run build",
     "build": "npm run render-build",
     "start": "cd backend && node src/server.js",
     "install:all": "npm --prefix backend install && npm --prefix frontend install",
