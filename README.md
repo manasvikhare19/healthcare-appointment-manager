@@ -29,8 +29,8 @@
 
 | Portal | URL Path | Demo Email | Demo Password |
 | :--- | :--- | :--- | :--- |
-| **Patient Portal** | `/login` or `/patient/dashboard` | `manasvikhare19@gmail.com` | `password123` |
-| **Doctor Portal** | `/login` or `/doctor/dashboard` | `manasvikhare9@gmail.com` | `password123` |
+| **Patient Portal** | `/login` or `/patient/dashboard` | `patient@example.com` | `password123` |
+| **Doctor Portal** | `/login` or `/doctor/dashboard` | `dr.mehta@clinic.local` | `password123` |
 | **Admin Portal** | `/login` or `/admin` | `admin@clinic.local` | `password123` |
 
 ---
