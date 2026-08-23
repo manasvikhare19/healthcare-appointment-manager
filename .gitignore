@@ -3,9 +3,11 @@ node_modules/
 backend/node_modules/
 frontend/node_modules/
 
-# Production build
+# Production build artifacts
 frontend/dist/
 dist/
+out/
+.next/
 
 # Local databases & logs
 backend/prisma/dev.db
@@ -17,7 +19,16 @@ npm-debug.log*
 backend/.env
 frontend/.env.local
 .env
+.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
 
-# Staging & temp
-staging_zip/
+# Temporary / editor-specific files
+.vscode/
+.idea/
 .DS_Store
+*.zip
+staging_zip/
+create_zip.js
+
