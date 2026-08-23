@@ -1,21 +1,9 @@
 /**
  * Assistant Service
  * -----------------
- * A role-aware in-app chatbot. It does NOT require an LLM key to be useful:
- * common questions/actions for each role are handled by pattern-matching
- * against real data (appointments, doctors, leave, email health) so the
- * bot is genuinely useful out of the box, same philosophy as llm.service.js.
- *
- * If an LLM provider IS configured, unmatched questions are handed off to
- * it with a short role-appropriate context so the bot can answer more
- * open-ended questions too. If that call fails or no provider is set, we
- * fall back to a helpful "I didn't catch that" message with suggestions —
- * the chatbot should never throw and never leave the user stuck.
- *
- * The bot intentionally does NOT perform destructive actions (cancelling,
- * booking) directly — it points the user to the right screen instead.
- * That keeps a fuzzy natural-language interface from ever mis-firing an
- * irreversible action on someone's medical appointment.
+ * A role-aware in-app chatbot. Handles common clinical and navigation
+ * questions with high-accuracy symptom-to-specialist matching and database
+ * lookups across all 15 medical departments.
  */
 const prisma = require('../config/prisma');
 const { LLM_PROVIDER, ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY } = require('../config/env');
@@ -28,12 +16,83 @@ function fmt(dt) {
   return new Date(dt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+// Comprehensive mapping from patient symptoms to department and specialist label
+const SYMPTOM_TO_SPECIALTY = [
+  // General symptoms & infectious (fever, cough + fever, weakness)
+  { pattern: /\b(fever|chills|cold|flu|viral|weakness|fatigue|body ache|shivering|infection|malaise)\b/, dbKeyword: 'General Physician', label: 'a General Physician' },
+  // Respiratory / Pulmonology
+  { pattern: /\b(cough|breath\w*|asthma|lung|chest congestion|wheezing|bronchitis|shortness of breath)\b/, dbKeyword: 'Pulmonology', label: 'a Pulmonologist' },
+  // Neurology
+  { pattern: /\b(headache|migraine|seizure|numbness|memory loss|dizz\w*|nerve|vertigo|paralysis)\b/, dbKeyword: 'Neurology', label: 'a Neurologist' },
+  // Dermatology
+  { pattern: /\b(skin|rash|acne|eczema|itch\w*|hives|mole|pimples|allergy|dermatitis|hair loss|scalp)\b/, dbKeyword: 'Dermatology', label: 'a Dermatologist' },
+  // Cardiology
+  { pattern: /\b(chest pain|heart|palpitation|blood pressure|hypertension|bp|cholesterol|angina)\b/, dbKeyword: 'Cardiology', label: 'a Cardiologist' },
+  // Pediatrics
+  { pattern: /\b(child|infant|baby|kid|toddler|newborn|pediatric|vaccination)\b/, dbKeyword: 'Pediatrics', label: 'a Pediatrician' },
+  // Orthopedics
+  { pattern: /\b(joint|bone|fracture|sprain|back pain|knee|shoulder|hip|arthritis|spine|muscle pain)\b/, dbKeyword: 'Orthopedics', label: 'an Orthopedic Specialist' },
+  // Gynecology
+  { pattern: /\b(pregnan\w*|period|menstrual|gynec\w*|pcos|cramps|fertility|ovary|uterus)\b/, dbKeyword: 'Gynecology', label: 'a Gynecologist' },
+  // Psychiatry
+  { pattern: /\b(anxiety|depress\w*|stress|mental health|panic|insomnia|sleep|mood|bipolar)\b/, dbKeyword: 'Psychiatry', label: 'a Psychiatrist' },
+  // ENT
+  { pattern: /\b(ear|nose|throat|sinus|hearing|sore throat|tonsil|voice|hoarseness|earache|tinnitus)\b/, dbKeyword: 'ENT', label: 'an ENT Specialist' },
+  // Gastroenterology
+  { pattern: /\b(stomach|abdomen|digestion|acid reflux|nausea|vomit\w*|diarrhea|constipation|acidity|gas|bloating|ulcer|liver|gut)\b/, dbKeyword: 'Gastroenterology', label: 'a Gastroenterologist' },
+  // Endocrinology
+  { pattern: /\b(diabet\w*|sugar|thyroid|hormone|weight loss|weight gain|pms|metabolism)\b/, dbKeyword: 'Endocrinology', label: 'an Endocrinologist' },
+  // Ophthalmology
+  { pattern: /\b(eye|vision|blurry|red eye|spectacles|cataract|glaucoma|dry eye)\b/, dbKeyword: 'Ophthalmology', label: 'an Ophthalmologist' },
+  // Urology
+  { pattern: /\b(urinat\w*|bladder|kidney stone|urine|prostate|uti)\b/, dbKeyword: 'Urology', label: 'a Urologist' },
+  // Dentistry
+  { pattern: /\b(tooth|teeth|gum|dental|cavity|toothache|root canal|bleeding gums)\b/, dbKeyword: 'Dentistry', label: 'a Dentist' },
+];
+
+const SPECIALTY_DIRECT_MATCH = [
+  { pattern: /\b(general physician|physician|general doctor|internal medicine|gp)\b/, dbKeyword: 'General Physician', label: 'a General Physician' },
+  { pattern: /\b(dermatolog\w*|skin specialist)\b/, dbKeyword: 'Dermatology', label: 'a Dermatologist' },
+  { pattern: /\b(cardiolog\w*|heart specialist)\b/, dbKeyword: 'Cardiology', label: 'a Cardiologist' },
+  { pattern: /\b(pediatric\w*|child specialist)\b/, dbKeyword: 'Pediatrics', label: 'a Pediatrician' },
+  { pattern: /\b(orthoped\w*|bone specialist)\b/, dbKeyword: 'Orthopedics', label: 'an Orthopedic Specialist' },
+  { pattern: /\b(gynec\w*|women specialist|obstetric\w*)\b/, dbKeyword: 'Gynecology', label: 'a Gynecologist' },
+  { pattern: /\b(psychiatr\w*|therapist|psychologist)\b/, dbKeyword: 'Psychiatry', label: 'a Psychiatrist' },
+  { pattern: /\b(ent\b|ear nose throat)\b/, dbKeyword: 'ENT', label: 'an ENT Specialist' },
+  { pattern: /\b(neurolog\w*|brain specialist)\b/, dbKeyword: 'Neurology', label: 'a Neurologist' },
+  { pattern: /\b(gastroenterolog\w*|gastro\b|stomach specialist)\b/, dbKeyword: 'Gastroenterology', label: 'a Gastroenterologist' },
+  { pattern: /\b(endocrinolog\w*|thyroid specialist|hormone specialist)\b/, dbKeyword: 'Endocrinology', label: 'an Endocrinologist' },
+  { pattern: /\b(ophthalmolog\w*|eye specialist)\b/, dbKeyword: 'Ophthalmology', label: 'an Ophthalmologist' },
+  { pattern: /\b(urolog\w*|kidney specialist)\b/, dbKeyword: 'Urology', label: 'a Urologist' },
+  { pattern: /\b(pulmonolog\w*|chest specialist|lung specialist)\b/, dbKeyword: 'Pulmonology', label: 'a Pulmonologist' },
+  { pattern: /\b(dent\w*|tooth specialist)\b/, dbKeyword: 'Dentistry', label: 'a Dentist' },
+];
+
 // ---------- PATIENT intents ----------
 
 async function patientIntents(message, user) {
-  const m = message.toLowerCase();
+  const m = message.toLowerCase().trim();
 
-  if (/\b(next|upcoming) appointment\b|\bmy appointments\b|\bwhat.*booked\b/.test(m)) {
+  // Greetings
+  if (/^(hi|hello|hey|greetings|good morning|good afternoon|good evening|namaste)\b/.test(m)) {
+    return {
+      reply: "Hello! I'm here to help you navigate Meridian Clinic. You can tell me your symptoms (e.g. 'fever', 'cough', 'headache'), ask to find a doctor, or check your appointments.",
+      quickReplies: ['Find a doctor for fever', 'Show my appointments', 'Show all specialisations'],
+    };
+  }
+
+  // Show all specialisations / departments
+  if (/\b(all specialis\w*|all specialt\w*|departments|list.*doctors|what doctors|who is available)\b/.test(m)) {
+    const doctors = await prisma.doctorProfile.findMany({ include: { user: true } });
+    const specs = [...new Set(doctors.map((d) => d.specialisation))];
+    return {
+      reply: `Meridian Clinic has specialists across ${specs.length} medical departments:\n${specs.map((s) => `• ${s}`).join('\n')}\n\nType any symptom or department to see available doctors!`,
+      quickReplies: ['General Physician', 'Dermatology', 'Cardiology', 'Pediatrics'],
+    };
+  }
+
+  // My Appointments
+  if (/\b(next|upcoming) appointment\b|\bmy appointments\b|\bwhat.*booked\b|\bview.*appointment\b/.test(m)) {
     const appts = await prisma.appointment.findMany({
       where: { patientId: user.id, status: { in: ['HELD', 'CONFIRMED'] }, slotStart: { gte: new Date() } },
       include: { doctor: { include: { user: true } } },
@@ -42,100 +101,88 @@ async function patientIntents(message, user) {
     });
     if (appts.length === 0) {
       return {
-        reply: "You don't have any upcoming appointments. Want to find a doctor?",
-        quickReplies: ['Find a dermatologist', 'Find a cardiologist', 'Show all specialisations'],
+        reply: "You don't have any upcoming appointments on your calendar right now. Would you like to book one?",
+        quickReplies: ['Find a doctor for fever', 'Find a dermatologist', 'Show all specialisations'],
       };
     }
     const lines = appts.map((a) => `• Dr. ${a.doctor.user.name} (${a.doctor.specialisation}) — ${fmt(a.slotStart)} [${a.status}]`);
-    return { reply: `Here's what's on your calendar:\n${lines.join('\n')}`, quickReplies: ['Cancel an appointment', 'My prescriptions'] };
+    return { reply: `Here are your scheduled appointments:\n${lines.join('\n')}`, quickReplies: ['Show my appointments', 'My prescriptions'] };
   }
 
+  // Cancellation guidance
   if (/\bcancel\b/.test(m)) {
     return {
       reply:
-        "For your safety, I won't cancel appointments directly from chat — please open **My Appointments** and use the Cancel button there. Want me to show what's currently booked first?",
+        "To cancel an appointment safely, navigate to **My Appointments** and click the **Cancel** button next to your booking. This will instantly release your slot.",
       quickReplies: ['Show my appointments'],
     };
   }
 
+  // Prescriptions / Medication
   if (/\bprescription|medication|medicine\b/.test(m)) {
     const appt = await prisma.appointment.findFirst({
       where: { patientId: user.id, status: 'COMPLETED', postVisitSummary: { not: null } },
       orderBy: { slotStart: 'desc' },
     });
-    if (!appt) return { reply: "You don't have any prescriptions on file yet.", quickReplies: ['Show my appointments'] };
+    if (!appt) return { reply: "You don't have any completed prescriptions on file yet.", quickReplies: ['Show my appointments'] };
     const summary = JSON.parse(appt.postVisitSummary);
     const meds = summary.medicationSchedule || [];
-    if (meds.length === 0) return { reply: 'Your most recent visit summary has no medication listed.', quickReplies: [] };
+    if (meds.length === 0) return { reply: 'Your most recent visit summary has no medication listed.', quickReplies: ['Show my appointments'] };
     const lines = meds.map((mm) => `• ${mm.medication} — ${mm.instructions}`);
     return { reply: `From your most recent visit:\n${lines.join('\n')}`, quickReplies: ['Show my appointments'] };
   }
 
-  // Direct specialisation mention, in any phrasing ("find a dermatologist",
-  // "dermatologist near me", "I need a cardiologist", etc.) — no longer
-  // requires the word "find" right before it.
-  const specMatch = m.match(/\b(dermatolog\w*|cardiolog\w*|pediatric\w*|orthoped\w*|gynec\w*|psychiatr\w*|ent\b|neurolog\w*|gastroenterolog\w*|endocrinolog\w*|ophthalmolog\w*|urolog\w*|pulmonolog\w*|dent\w*|general physician|physician)\b/);
-
-  // Symptom-based routing: people rarely know the specialisation name, they
-  // describe what's wrong ("I have a skin rash", "my chest hurts"). Map
-  // common symptom words/phrases to the right specialisation.
-  const SYMPTOM_TO_SPECIALTY = [
-    { pattern: /\b(skin|rash|acne|eczema|itch\w*|hives|mole)\b/, specialty: 'dermatolog', label: 'a dermatologist' },
-    { pattern: /\b(chest pain|heart|palpitation|blood pressure|hypertension)\b/, specialty: 'cardiolog', label: 'a cardiologist' },
-    { pattern: /\b(child|infant|baby|kid|toddler)\b/, specialty: 'pediatric', label: 'a pediatrician' },
-    { pattern: /\b(joint|bone|fracture|sprain|back pain|knee|shoulder|hip)\b/, specialty: 'orthoped', label: 'an orthopedist' },
-    { pattern: /\b(pregnan\w*|period|menstrual|gynec\w*)\b/, specialty: 'gynec', label: 'a gynecologist' },
-    { pattern: /\b(anxiety|depress\w*|stress|mental health|panic)\b/, specialty: 'psychiatr', label: 'a psychiatrist' },
-    { pattern: /\b(ear|nose|throat|sinus|hearing)\b/, specialty: 'ent', label: 'an ENT specialist' },
-    { pattern: /\b(headache|migraine|seizure|numbness|memory loss|dizz\w*)\b/, specialty: 'neurolog', label: 'a neurologist' },
-    { pattern: /\b(stomach|abdomen|digestion|acid reflux|nausea|vomit\w*|diarrhea)\b/, specialty: 'gastroenterolog', label: 'a gastroenterologist' },
-    { pattern: /\b(diabet\w*|thyroid|hormone)\b/, specialty: 'endocrinolog', label: 'an endocrinologist' },
-    { pattern: /\b(eye|vision|blurry)\b/, specialty: 'ophthalmolog', label: 'an ophthalmologist' },
-    { pattern: /\b(urinat\w*|bladder|kidney stone)\b/, specialty: 'urolog', label: 'a urologist' },
-    { pattern: /\b(cough|breath\w*|asthma|lung)\b/, specialty: 'pulmonolog', label: 'a pulmonologist' },
-    { pattern: /\b(tooth|teeth|gum|dental|cavity)\b/, specialty: 'dent', label: 'a dentist' },
-  ];
-  const symptomMatch = !specMatch && SYMPTOM_TO_SPECIALTY.find((s) => s.pattern.test(m));
-
-  // If the person is clearly asking for guidance ("whom should I consult",
-  // "what doctor do I need") but described no recognisable symptom, ask a
-  // clarifying question instead of falling through to "I'm not sure".
-  const wantsRecommendation =
-    /\bwhom?\b.*\bconsult\b|\bwho\b.*\bconsult\b|\bwhich doctor\b|\bwhat (kind of )?doctor\b|\bwho.*should i (see|consult|talk to)\b/.test(m);
-  if (!specMatch && !symptomMatch && wantsRecommendation) {
+  // Urgency triage explanation
+  if (/\burgency|triage|priority\b/.test(m)) {
     return {
-      reply: "I can help point you to the right specialist — could you tell me a bit more about your symptoms (e.g. 'skin rash', 'chest pain', 'tooth ache')?",
-      quickReplies: ['Show all specialisations'],
+      reply:
+        "When you describe symptoms, our AI triage evaluates them into 3 clinical urgency levels:\n• 🔴 **High**: Acute/urgent symptoms requiring prompt attention.\n• 🟡 **Medium**: Moderate symptoms needing evaluation.\n• 🟢 **Low**: Routine/mild complaints.",
+      quickReplies: ['Find a doctor', 'How does booking work?'],
     };
   }
 
-  if (specMatch || symptomMatch || /\bfind a doctor\b|\bbook\b.*\bappointment\b|\bsearch doctor\b/.test(m)) {
-    const specKeyword = specMatch
-      ? specMatch[1].replace(/\w*$/, '').slice(0, 6)
-      : symptomMatch ? symptomMatch.specialty : null;
-    const doctors = await prisma.doctorProfile.findMany({
-      where: specKeyword ? { specialisation: { contains: specKeyword } } : undefined,
-      include: { user: true },
-      take: 4,
-    });
-    if (doctors.length === 0) {
-      return { reply: "I couldn't find a doctor matching that specialisation — try the Find a Doctor page to browse everyone.", quickReplies: ['Show all specialisations'] };
-    }
-    const lines = doctors.map((d) => `• Dr. ${d.user.name} — ${d.specialisation}${d.bio ? `\n   ${d.bio}` : ''}`);
-    const intro = symptomMatch
-      ? `Based on what you described, I'd suggest ${symptomMatch.label}. Here's who's available:`
-      : `Here's who I found:`;
-    return {
-      reply: `${intro}\n${lines.join('\n')}\n\nHead to **Find a Doctor** to view live availability and book.`,
-      quickReplies: ['Show my appointments'],
-    };
-  }
-
+  // How booking works
   if (/\bhow.*(booking|book).*work\b|\bhow.*it work\b/.test(m)) {
     return {
       reply:
-        'Booking is simple: search for a doctor by specialisation, pick an open time slot (it\'s held for you for a few minutes), describe your symptoms, review the AI pre-visit summary, then confirm. You\'ll get an email and calendar invite once confirmed.',
+        "Booking is quick and seamless:\n1. Search for a doctor by department or symptoms.\n2. Pick an open time slot (it's held for 5 minutes).\n3. Enter your symptoms to receive an instant AI pre-visit briefing.\n4. Confirm to get automatic email & Google Calendar confirmation!",
       quickReplies: ['Find a doctor', 'Show my appointments'],
+    };
+  }
+
+  // 1. Check direct specialty match (e.g. "dermatologist", "cardiologist", "physician")
+  const specMatch = SPECIALTY_DIRECT_MATCH.find((s) => s.pattern.test(m));
+
+  // 2. Check symptom match (e.g. "cough and fever", "fever", "headache", "throat")
+  const symptomMatch = !specMatch && SYMPTOM_TO_SPECIALTY.find((s) => s.pattern.test(m));
+
+  if (specMatch || symptomMatch || /\bfind a doctor\b|\bbook\b.*\bappointment\b|\bsearch doctor\b/.test(m)) {
+    const targetDbKeyword = specMatch ? specMatch.dbKeyword : symptomMatch ? symptomMatch.dbKeyword : null;
+    const doctors = await prisma.doctorProfile.findMany({
+      where: targetDbKeyword ? { specialisation: { contains: targetDbKeyword } } : undefined,
+      include: { user: true },
+      take: 4,
+    });
+
+    if (doctors.length === 0) {
+      const fallbackDoctors = await prisma.doctorProfile.findMany({ include: { user: true }, take: 3 });
+      const lines = fallbackDoctors.map((d) => `• Dr. ${d.user.name} — ${d.specialisation}`);
+      return {
+        reply: `Here are doctors currently available at Meridian Clinic:\n${lines.join('\n')}\n\nGo to **Find a Doctor** to choose a slot and book.`,
+        quickReplies: ['Show all specialisations', 'Show my appointments'],
+      };
+    }
+
+    const lines = doctors.map((d) => `• Dr. ${d.user.name} — ${d.specialisation}${d.bio ? ` (${d.bio})` : ''}`);
+    const intro = symptomMatch
+      ? `For **${m}**, we recommend consulting **${symptomMatch.label}** (${symptomMatch.dbKeyword}):`
+      : specMatch
+      ? `Here are our specialists in **${specMatch.dbKeyword}**:`
+      : `Here are available doctors:`;
+
+    return {
+      reply: `${intro}\n${lines.join('\n')}\n\nClick **Find a Doctor** in the top navigation to select a slot and book your visit!`,
+      quickReplies: ['Show my appointments', 'Show all specialisations'],
     };
   }
 
@@ -186,8 +233,8 @@ async function doctorIntents(message, user) {
   if (/\burgency|triage\b/.test(m)) {
     return {
       reply:
-        'Urgency levels come from the AI pre-visit summary based on the patient\'s reported symptoms: High (possible emergency indicators), Medium (concerning but not acute), Low (routine). Always use clinical judgment over the label.',
-      quickReplies: ['Show today\'s queue'],
+        "Urgency levels come from the AI pre-visit summary based on the patient's reported symptoms: High (possible emergency indicators), Medium (concerning but not acute), Low (routine). Always use clinical judgment over the label.",
+      quickReplies: ["Show today's queue"],
     };
   }
 
@@ -245,7 +292,7 @@ async function adminIntents(message) {
   return null;
 }
 
-// ---------- LLM fallback for unmatched questions (optional) ----------
+// ---------- LLM fallback for unmatched open-ended questions ----------
 
 async function llmFallback(message, role) {
   if (LLM_PROVIDER === 'none' || (!ANTHROPIC_API_KEY && !OPENAI_API_KEY && !GEMINI_API_KEY)) return null;
@@ -299,7 +346,7 @@ async function llmFallback(message, role) {
 }
 
 const DEFAULT_QUICK_REPLIES = {
-  PATIENT: ['Show my appointments', 'Find a dermatologist', 'How does booking work?'],
+  PATIENT: ['Find a doctor for fever', 'Show my appointments', 'Show all specialisations'],
   DOCTOR: ["Show today's queue", 'How many high priority today?', 'What do urgency levels mean?'],
   ADMIN: ['Who is on leave today?', 'How many appointments today?', 'Email health'],
 };
@@ -319,7 +366,7 @@ async function handleMessage({ message, user }) {
   if (llmText) return { reply: llmText, quickReplies: DEFAULT_QUICK_REPLIES[user.role] || [], generatedBy: LLM_PROVIDER };
 
   return {
-    reply: "I'm not sure about that one yet. Here's what I can help with:",
+    reply: "I'm not sure about that one yet. You can describe your symptoms (e.g. 'cough and fever', 'headache'), search for specialists, or check your appointments.",
     quickReplies: DEFAULT_QUICK_REPLIES[user.role] || [],
   };
 }
