@@ -8,6 +8,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        sync: false
       - key: PORT
         value: 10000
       - key: JWT_SECRET
@@ -24,6 +26,8 @@ services:
         sync: false
       - key: EMAIL_ENABLED
         value: "true"
+      - key: EMAIL_OVERRIDE
+        value: manasvikhare19@gmail.com
       - key: LLM_PROVIDER
         value: none
       - key: CALENDAR_ENABLED
