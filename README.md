@@ -1,10 +1,31 @@
 # Meridian Clinic — Healthcare Appointment & Follow-up Manager
 
-A full-stack, enterprise-grade healthcare appointment and care management platform with dedicated portals for **Patients**, **Doctors**, and **Admins**. 
+> 🌐 **Live Hosted Application:** [https://healthcare-appointment-manager-z3t2.onrender.com](https://healthcare-appointment-manager-z3t2.onrender.com) *(or your deployed Render URL)*  
+> 🎥 **Demo Video Walkthrough (Google Drive):** [Click to Watch Demo Video](https://drive.google.com/file/d/YOUR_DRIVE_VIDEO_ID/view?usp=sharing)  
+> 📂 **GitHub Repository:** [https://github.com/manasvikhare19/healthcare-appointment-manager](https://github.com/manasvikhare19/healthcare-appointment-manager) (Branch: `main` — Public & Downloadable)
 
-Patients can browse doctors by specialization, hold and book appointment slots, submit symptoms in advance, receive AI-generated pre-visit summaries and urgency triage, access patient-friendly post-visit notes and prescriptions, receive scheduled medication reminders, and keep everything synced across **Email** and **Google Calendar**.
+---
 
-Doctors can review an urgency-triaged consultation queue with AI pre-visit briefings, complete visits with clinical notes and prescriptions, and generate structured care summaries. Admins have complete control over doctor profiles, schedule configurations, whole-day leave management with automated patient conflict resolution, and real-time notification diagnostics.
+## 📋 Table of Contents
+1. [Submission Links & Demo Credentials](#submission-links--demo-credentials)
+2. [Technical Stack & Architecture](#technical-stack--architecture)
+3. [Key Features & System Workflow](#key-features--system-workflow)
+4. [Quick Start Setup Guide](#quick-start-setup-guide)
+5. [Database Schema Design](#database-schema-design)
+6. [API Endpoints Documentation](#api-endpoints-documentation)
+7. [LLM Prompts & AI Integration](#llm-prompts--ai-integration)
+8. [Google Calendar & Email Notification Setup](#google-calendar--email-notification-setup)
+9. [Automated Verification & Testing](#automated-verification--testing)
+
+---
+
+## 🔑 Submission Links & Demo Credentials
+
+| Portal | URL Path | Demo Email | Demo Password |
+| :--- | :--- | :--- | :--- |
+| **Patient Portal** | `/login` or `/patient/dashboard` | `manasvikhare19@gmail.com` | `password123` |
+| **Doctor Portal** | `/login` or `/doctor/dashboard` | `manasvikhare9@gmail.com` | `password123` |
+| **Admin Portal** | `/login` or `/admin` | `admin@clinic.local` | `password123` |
 
 ---
 

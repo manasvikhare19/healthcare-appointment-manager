@@ -84,23 +84,31 @@ async function callOpenAI(prompt) {
 }
 
 async function callGemini(prompt) {
-  // Google AI Studio's free tier — no billing required, generous daily
-  // limits on gemini-2.5-flash. Get a key at https://aistudio.google.com/apikey
-  const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3 },
-      }),
+  // Google AI Studio's free tier models (gemini-1.5-flash and gemini-2.0-flash)
+  const models = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+  for (const model of models) {
+    try {
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.3 },
+          }),
+        }
+      );
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+      const parsed = safeParseJson(text);
+      if (parsed) return parsed;
+    } catch (err) {
+      // try next model
     }
-  );
-  if (!resp.ok) throw new Error(`Gemini API error: ${resp.status}`);
-  const data = await resp.json();
-  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-  return safeParseJson(text);
+  }
+  return null;
 }
 
 async function callProvider(prompt) {

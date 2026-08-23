@@ -323,21 +323,27 @@ async function llmFallback(message, role) {
       return data.choices?.[0]?.message?.content || null;
     }
     if (LLM_PROVIDER === 'gemini' && GEMINI_API_KEY) {
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
-          }),
-        }
-      );
-      if (!resp.ok) return null;
-      const data = await resp.json();
-      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-      return text || null;
+      const models = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+      for (const model of models) {
+        try {
+          const resp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
+              }),
+            }
+          );
+          if (!resp.ok) continue;
+          const data = await resp.json();
+          const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+          if (text) return text;
+        } catch (e) {}
+      }
+      return null;
     }
   } catch (err) {
     console.error('[assistant.service] llmFallback failed:', err.message);
