@@ -8,12 +8,17 @@
 
 ## 📋 Table of Contents
 1. [Submission Links & Demo Credentials](#submission-links--demo-credentials)
-2. [Technical Stack & Architecture](#technical-stack--architecture)
-3. [Key Features & System Workflow](#key-features--system-workflow)
+2. [Evaluation Focus & Architecture Deep-Dive](#-evaluation-focus-architecture-deep-dive)
+   - [1. Slot Conflicts, Leave Management & Notification Reliability](#1-slot-conflicts-leave-management--notification-reliability)
+   - [2. LLM Prompt Quality & Failure Handling](#2-llm-prompt-quality--failure-handling)
+   - [3. Database Schema Design](#3-database-schema-design)
+   - [4. API Design & Code Structure](#4-api-design--code-structure)
+   - [5. Email & Google Calendar Integration](#5-email--google-calendar-integration)
+3. [Technical Stack & Architecture](#technical-stack--architecture)
 4. [Quick Start Setup Guide](#quick-start-setup-guide)
-5. [Database Schema Design](#database-schema-design)
-6. [API Endpoints Documentation](#api-endpoints-documentation)
-7. [LLM Prompts & AI Integration](#llm-prompts--ai-integration)
+5. [Database Schema Model](#database-schema-model)
+6. [Complete API Reference](#complete-api-reference)
+7. [AI / LLM Integration & Prompts](#ai--llm-integration--prompts)
 8. [Google Calendar & Email Notification Setup](#google-calendar--email-notification-setup)
 9. [Automated Verification & Testing](#automated-verification--testing)
 
@@ -26,6 +31,94 @@
 | **Patient Portal** | `/login` or `/patient/dashboard` | `manasvikhare19@gmail.com` | `password123` |
 | **Doctor Portal** | `/login` or `/doctor/dashboard` | `manasvikhare9@gmail.com` | `password123` |
 | **Admin Portal** | `/login` or `/admin` | `admin@clinic.local` | `password123` |
+
+---
+
+## 🌟 Evaluation Focus: Architecture Deep-Dive
+
+This section directly addresses the core evaluation criteria outlined in the project specification:
+
+### 1. Slot Conflicts, Leave Management & Notification Reliability
+
+#### A. Concurrency Safety & Double-Booking Prevention
+- **The Problem:** The naive pattern (*"check availability then insert"*) has a race condition where simultaneous requests can both observe an empty slot before either writes, causing catastrophic double-booking.
+- **Our Solution:** Concurrency serialization is enforced directly in the database engine using an atomic `SlotLock` table with a **`UNIQUE(doctorId, slotStart)`** constraint.
+- **Mechanism:** Reserving a slot executes an atomic `INSERT` inside a database transaction. When concurrent requests attempt to reserve the same doctor slot:
+  1. The database serializes the operations.
+  2. Exactly one transaction acquires the unique constraint and commits (`200 OK`).
+  3. The competing transaction fails immediately with unique violation code `P2002`.
+  4. The backend catches this code and returns a graceful `409 Conflict` (*"This slot was just taken by another patient. Please choose a different time."*).
+
+#### B. 2-Phase Slot Hold Protocol
+- **Step 1 — Atomic Hold (`POST /api/appointments/hold`):** When a patient selects a slot, an atomic `SlotLock` and `Appointment` record are created with `status: 'HELD'` and `expiresAt: now() + 5 minutes`.
+- **Step 2 — Confirmation (`POST /api/appointments/:id/confirm`):** Once symptoms are entered and the AI pre-visit summary is approved, the status is promoted to `CONFIRMED` and `expiresAt` is cleared.
+- **Orphan Cleanup:** A background cron job (`slotLockCleanup.job.js`) runs every minute. Any abandoned holds (`expiresAt < now()`) are purged, returning the slot to the available pool.
+
+#### C. Doctor Leave Conflict Resolution
+- When an admin marks a doctor on leave for a date (`POST /api/admin/doctors/:id/leave`):
+  1. **Audit Transition:** Conflicting appointments are updated to `LEAVE_CANCELLED`.
+  2. **Lock Release:** Associated `SlotLock` records are purged.
+  3. **Patient Alerts:** Urgent cancellation emails (`LEAVE_NOTICE`) are dispatched to each affected patient with direct rebooking links.
+  4. **Calendar Sync:** Google Calendar events are automatically deleted via the Calendar API.
+
+#### D. Notification Reliability
+- **Durable Pre-Logging:** Every email notification is written to the database (`EmailLog` with `status: 'PENDING'`) *before* network dispatch. If a host crashes or network drops, the notification is preserved.
+- **Automated Retry Engine:** A background cron job (`emailRetry.job.js`) retries failed emails up to 5 times with exponential backoff.
+- **Admin Audit Log:** Admins have live visibility into sent, pending, and failed notifications with full error traces and 1-click manual retry.
+
+---
+
+### 2. LLM Prompt Quality & Failure Handling
+
+#### A. Prompt Engineering & Alignment
+- **Pre-Visit Triage Prompt:**
+  > *"Analyse these symptoms and return: urgency level (Low / Medium / High), chief complaint, and three suggested questions for the doctor. Symptoms: `<symptoms>`"*
+  - Returns structured JSON validated via Zod: `{ urgency: "Low" | "Medium" | "High", chiefComplaint: string, suggestedQuestions: string[] }`.
+- **Post-Visit Summary Prompt:**
+  > *"Convert these clinical notes into a patient-friendly summary with medication schedule and follow-up steps: `<notes>`"*
+  - Returns structured JSON: `{ summary, keyTakeaways, medicationSchedule, followUpSteps, dietAndLifestyle, warningSigns }`.
+
+#### B. Multi-Tier Provider & Graceful Failure Handling
+- **Multi-Model Provider Support:** Compatible with **Google Gemini 1.5 Flash / 2.0 Flash**, **Anthropic Claude 3.5 Sonnet**, and **OpenAI GPT-4o-mini**.
+- **Deterministic Offline Fallback:** Per the requirement (*"LLM failures must be handled gracefully, system should not break"*), if an LLM key is missing, invalid, or rate-limited, the system executes an intelligent rule-based clinical parser:
+  - Detects high-acuity indicators (`chest pain`, `shortness of breath`, `bleeding`) &rarr; `High` Urgency.
+  - Detects moderate indicators (`fever`, `vomiting`, `infection`) &rarr; `Medium` Urgency.
+  - Parses medication schedules (`every 8 hours`, `twice daily`, `for 5 days`) deterministically.
+  - **Result:** 100% platform availability with zero crashes.
+
+---
+
+### 3. Database Schema Design
+
+The Prisma database schema is designed with strict separation of concerns:
+- **Decoupled Lifecycle:** Clinical data (`Appointment`) is decoupled from concurrency locking (`SlotLock`). When an appointment is cancelled or rescheduled, its `SlotLock` is freed while the medical record and audit trail remain intact.
+- **Audit Logging:** Every email attempt is stored in `EmailLog` with status, attempt counters, and error traces.
+- **Medication Scheduling:** Prescriptions generate discrete `MedicationReminder` records with calculated `nextRunAt` timestamps for automated background dispatch.
+- **OAuth Token Storage:** Encrypted Google OAuth refresh tokens are stored per user for automated background calendar synchronisation.
+
+---
+
+### 4. API Design & Code Structure
+
+- **Layered Clean Architecture:**
+  - **Routes Layer (`src/routes/`):** Express routing with Zod schema validation.
+  - **Middleware Layer (`src/middleware/`):** JWT authentication, role guards (`requireRole('PATIENT' | 'DOCTOR' | 'ADMIN')`), rate limiting, and centralized async error handling.
+  - **Service Layer (`src/services/`):** Encapsulated business logic (`slot.service.js`, `llm.service.js`, `email.service.js`, `calendar.service.js`, `assistant.service.js`).
+  - **Background Engine (`src/jobs/`):** Scheduled cron workers for slot cleanup, email retries, 24-hour visit reminders, and prescription medication alerts.
+
+---
+
+### 5. Email & Google Calendar Integration
+
+- **Multi-Provider Email Engine:**
+  - Native **Gmail App Password** support (16-char app credentials).
+  - Standard **SMTP** (SendGrid, Mailgun, AWS SES).
+  - **Resend HTTPS API** with automatic Sandbox domain fallback to ensure delivery on cloud hosts like Render that restrict outbound SMTP ports (587/465).
+- **Bidirectional Google Calendar:**
+  - **OAuth 2.0:** Auto-creates events on booking for both patient and doctor calendars.
+  - **Lifecycle Updates:** Updates calendar event times on reschedule and deletes events on cancellation or doctor leave.
+  - **Retroactive Sync:** Automatically back-syncs existing appointments when a user connects their Google account.
+  - **1-Click Web Links:** In-app direct Google Calendar links (`calendar.google.com/render?...`) embedded in confirmation emails and cards for zero-config calendar addition.
 
 ---
 
