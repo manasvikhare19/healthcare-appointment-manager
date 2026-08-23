@@ -1,8 +1,8 @@
 # Meridian Clinic — Healthcare Appointment & Follow-up Manager
 
-> 🌐 **Live Hosted Application:** [Click to Watch Demo Video](https://healthcare-appointment-manager-1-ig40.onrender.com)  
+> 🌐 **Live Hosted Application:** [https://healthcare-appointment-manager-1-ig40.onrender.com](https://healthcare-appointment-manager-1-ig40.onrender.com)  
 >
-> 🎥 **Demo Video Walkthrough (Google Drive):** [Click to Watch Demo Video](https://drive.google.com/file/d/YOUR_DRIVE_VIDEO_ID/view?usp=sharing)  
+> 🎥 **Demo Video Walkthrough (Google Drive):** [Click to Watch Demo Video](https://drive.google.com/file/d/1d6he64RWHZwsglHk0IgHufaZ-9NFV0gR/view?usp=drive_link)  
 > 📂 **GitHub Repository:** [https://github.com/manasvikhare19/healthcare-appointment-manager](https://github.com/manasvikhare19/healthcare-appointment-manager) (Branch: `main` — Public & Downloadable)
 
 ---
