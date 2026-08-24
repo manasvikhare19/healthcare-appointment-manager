@@ -155,7 +155,7 @@ async function attemptSend(log) {
   const targetEmail = EMAIL_OVERRIDE || log.toEmail;
   const targetSubject = EMAIL_OVERRIDE ? `[To: ${log.toEmail}] ${log.subject}` : log.subject;
 
-  // Option 1: Resend HTTP API
+  // Option 1: If EMAIL_PROVIDER is resend, use Resend HTTPS API (works on all cloud hosts)
   if (EMAIL_PROVIDER === 'resend' && RESEND_API_KEY) {
     try {
       await sendViaResend({ to: targetEmail, subject: targetSubject, html: log.body });
@@ -173,9 +173,21 @@ async function attemptSend(log) {
   }
 
   const t = getTransporter();
+
+  // If no SMTP transporter, or if we have Resend as fallback:
   if (!t) {
-    // No email provider configured — dev-mode friendly fallback:
-    // Log to console and mark SENT so it doesn't backlog the retry queue.
+    if (RESEND_API_KEY) {
+      try {
+        await sendViaResend({ to: targetEmail, subject: targetSubject, html: log.body });
+        return prisma.emailLog.update({
+          where: { id: log.id },
+          data: { status: 'SENT', attempts: { increment: 1 }, lastError: null },
+        });
+      } catch (err) {
+        console.error(`[email.service] Resend fallback failed:`, err.message);
+      }
+    }
+
     console.log(`\n📧 [DEV EMAIL] To: ${targetEmail} | Subject: ${targetSubject}\nType: ${log.type}\nBody: ${log.body.replace(/<[^>]*>?/gm, ' ')}\n`);
     return prisma.emailLog.update({
       where: { id: log.id },
@@ -196,7 +208,22 @@ async function attemptSend(log) {
       data: { status: 'SENT', attempts: { increment: 1 }, lastError: null },
     });
   } catch (err) {
-    console.error(`[email.service] Email send failed for log ${log.id}:`, err.message);
+    console.error(`[email.service] SMTP send failed for log ${log.id}:`, err.message);
+
+    // If SMTP times out or is blocked on Render, auto-fallback to Resend HTTPS API
+    if (RESEND_API_KEY) {
+      try {
+        console.log(`[email.service] Attempting Resend HTTPS failover for log ${log.id}...`);
+        await sendViaResend({ to: targetEmail, subject: targetSubject, html: log.body });
+        return prisma.emailLog.update({
+          where: { id: log.id },
+          data: { status: 'SENT', attempts: { increment: 1 }, lastError: null },
+        });
+      } catch (resendErr) {
+        console.error(`[email.service] Resend failover failed:`, resendErr.message);
+      }
+    }
+
     return prisma.emailLog.update({
       where: { id: log.id },
       data: { status: 'FAILED', attempts: { increment: 1 }, lastError: err.message },
