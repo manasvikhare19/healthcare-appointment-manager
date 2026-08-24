@@ -44,12 +44,40 @@ export function NavBar() {
         )}
         {user ? (
           <>
-            <span className="role-pill">{user.role}</span>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 10px',
+                borderRadius: 20,
+                fontSize: 12,
+                fontWeight: 600,
+                color: '#fff',
+                background:
+                  user.role === 'ADMIN'
+                    ? 'linear-gradient(135deg, #4338ca, #312e81)'
+                    : user.role === 'DOCTOR'
+                    ? 'linear-gradient(135deg, #047857, #064e3b)'
+                    : 'linear-gradient(135deg, #0e7490, #155e75)',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+              }}
+            >
+              <span>{user.role === 'ADMIN' ? '👑' : user.role === 'DOCTOR' ? '🩺' : '👤'}</span>
+              <span>
+                {user.role === 'ADMIN'
+                  ? `Admin · ${user.name || 'Clinic Administrator'}`
+                  : user.role === 'DOCTOR'
+                  ? `Dr. ${user.name}`
+                  : `${user.name}`}
+              </span>
+            </div>
             <button
               onClick={() => {
                 logout();
                 navigate('/login');
               }}
+              style={{ color: 'var(--muted)', fontSize: 13 }}
             >
               Sign out
             </button>
