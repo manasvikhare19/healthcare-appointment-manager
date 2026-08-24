@@ -9,19 +9,20 @@
 
 ## 📋 Table of Contents
 1. [Submission Links & Demo Credentials](#submission-links--demo-credentials)
-2. [Evaluation Focus & Architecture Deep-Dive](#-evaluation-focus-architecture-deep-dive)
+2. [Visual Walkthrough & UI Showcase](#-visual-walkthrough--ui-showcase)
+3. [Evaluation Focus & Architecture Deep-Dive](#-evaluation-focus-architecture-deep-dive)
    - [1. Slot Conflicts, Leave Management & Notification Reliability](#1-slot-conflicts-leave-management--notification-reliability)
    - [2. LLM Prompt Quality & Failure Handling](#2-llm-prompt-quality--failure-handling)
    - [3. Database Schema Design](#3-database-schema-design)
    - [4. API Design & Code Structure](#4-api-design--code-structure)
    - [5. Email & Google Calendar Integration](#5-email--google-calendar-integration)
-3. [Technical Stack & Architecture](#technical-stack--architecture)
-4. [Quick Start Setup Guide](#quick-start-setup-guide)
-5. [Database Schema Model](#database-schema-model)
-6. [Complete API Reference](#complete-api-reference)
-7. [AI / LLM Integration & Prompts](#ai--llm-integration--prompts)
-8. [Google Calendar & Email Notification Setup](#google-calendar--email-notification-setup)
-9. [Automated Verification & Testing](#automated-verification--testing)
+4. [Technical Stack & Architecture](#technical-stack--architecture)
+5. [Quick Start Setup Guide](#quick-start-setup-guide)
+6. [Database Schema Model](#database-schema-model)
+7. [Complete API Reference](#complete-api-reference)
+8. [AI / LLM Integration & Prompts](#ai--llm-integration--prompts)
+9. [Google Calendar & Email Notification Setup](#google-calendar--email-notification-setup)
+10. [Automated Verification & Testing](#automated-verification--testing)
 
 ---
 
@@ -32,6 +33,38 @@
 | **Patient Portal** | `/login` or `/patient/dashboard` | `patient@example.com` | `password123` |
 | **Doctor Portal** | `/login` or `/doctor/dashboard` | `dr.mehta@clinic.local` | `password123` |
 | **Admin Portal** | `/login` or `/admin` | `admin@clinic.local` | `password123` |
+
+---
+
+## 📸 Visual Walkthrough & UI Showcase
+
+### 1. Landing Page & Clinic Feature Architecture
+Clean, editorial typography with quick-action portal entry and core clinical pillars.
+![Landing Page](docs/screenshots/landing-page.png)
+
+---
+
+### 2. Interactive Role Switcher Sign-in (`/login`)
+One-click demo account switcher across Patient, Doctor, and Admin portals with active role indicators.
+![Login Role Switcher](docs/screenshots/login-role-switcher.png)
+
+---
+
+### 3. Patient Self-Registration (`/register`)
+Seamless patient onboarding with instant account creation and welcome notification.
+![Patient Registration](docs/screenshots/patient-registration.png)
+
+---
+
+### 4. Patient Care Dashboard (`/patient/dashboard`)
+Upcoming consultation hero card, care statistics counters, calendar timeline, urgency badges, and embedded AI Assistant.
+![Patient Dashboard](docs/screenshots/patient-dashboard.png)
+
+---
+
+### 5. AI Post-Visit Care Summary & Medication Cadence (`/patient/appointments`)
+Structured plain-language visit translation, key clinical takeaways, prescribed medication schedule, follow-up milestones, and warning signs.
+![AI Visit Summary](docs/screenshots/appointment-ai-summary.png)
 
 ---
 
