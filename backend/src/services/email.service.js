@@ -513,7 +513,29 @@ const templates = {
       <p style="font-size: 13px; color: #15803d;">All notification services (booking confirmations, cancellations, reminders, and leave notices) are ready.</p>
     `),
   }),
+
+  // 13. Security Login Alert
+  loginAlert: (name, email, role, timestamp = new Date()) => {
+    const formatted = new Date(timestamp).toLocaleString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+    return {
+      subject: `🔐 Security Notice: New sign-in to your Meridian Clinic account`,
+      body: wrapHtml('Security Alert', `
+        <p>Hello <b>${name}</b>,</p>
+        <p>We detected a new sign-in to your <b>Meridian Clinic</b> account with the following details:</p>
+        <div class="card-box">
+          <p style="margin: 0 0 6px;"><strong>Account:</strong> ${email}</p>
+          <p style="margin: 0 0 6px;"><strong>Role:</strong> ${role.charAt(0) + role.slice(1).toLowerCase()}</p>
+          <p style="margin: 0;"><strong>Sign-in Time:</strong> ${formatted}</p>
+        </div>
+        <p style="font-size: 13.5px; color: #475569;">If this was you, you can safely ignore this email. If you did not log in, please secure your account or contact the clinic administrator immediately.</p>
+      `),
+    };
+  },
 };
 
 module.exports = { queueAndSend, attemptSend, verifyConnection, templates };
+
 

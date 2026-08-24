@@ -40,6 +40,15 @@ router.post(
       data: { name, email, phone, passwordHash, role: 'PATIENT' },
     });
 
+    // Send welcome email notification
+    emailService
+      .queueAndSend({
+        toEmail: user.email,
+        type: 'SECURITY_ALERT',
+        ...emailService.templates.loginAlert(user.name, user.email, user.role),
+      })
+      .catch((err) => console.error('[auth.routes] Welcome notification email failed:', err.message));
+
     res.status(201).json({
       token: signToken(user),
       user: { id: user.id, name: user.name, email: user.email, role: user.role, calendarConnected: false },
@@ -59,6 +68,15 @@ router.post(
 
     const valid = await bcrypt.compare(parsed.data.password, user.passwordHash);
     if (!valid) throw new ApiError(401, 'Invalid email or password');
+
+    // Dispatch a real-time login alert notification to the user's email
+    emailService
+      .queueAndSend({
+        toEmail: user.email,
+        type: 'SECURITY_ALERT',
+        ...emailService.templates.loginAlert(user.name, user.email, user.role),
+      })
+      .catch((err) => console.error('[auth.routes] Login notification email failed:', err.message));
 
     res.json({
       token: signToken(user),
