@@ -16,7 +16,7 @@ const nodemailer = require('nodemailer');
 const prisma = require('../config/prisma');
 const {
   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, EMAIL_ENABLED,
-  EMAIL_PROVIDER, RESEND_API_KEY, GMAIL_USER, GMAIL_APP_PASSWORD, EMAIL_OVERRIDE,
+  EMAIL_PROVIDER, RESEND_API_KEY, BREVO_API_KEY, GMAIL_USER, GMAIL_APP_PASSWORD, EMAIL_OVERRIDE,
 } = require('../config/env');
 
 let transporter = null;
@@ -52,6 +52,36 @@ function getTransporter() {
   }
 
   return null;
+}
+
+/**
+ * Brevo sends over HTTPS (port 443) and delivers directly to ANY domain
+ * without sandbox or single-recipient restrictions.
+ */
+async function sendViaBrevo({ to, subject, html }) {
+  const fromEmail = GMAIL_USER || 'onboarding@meridianclinic.com';
+  const fromName = 'Meridian Clinic';
+  const recipients = (Array.isArray(to) ? to : [to]).map((e) => ({ email: e }));
+
+  const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'Content-Type': 'application/json',
+      'api-key': BREVO_API_KEY,
+    },
+    body: JSON.stringify({
+      sender: { name: fromName, email: fromEmail },
+      to: recipients,
+      subject,
+      htmlContent: html,
+    }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => resp.statusText);
+    throw new Error(`Brevo API error (${resp.status}): ${errText}`);
+  }
+  return resp.json();
 }
 
 /**
@@ -105,6 +135,10 @@ async function verifyConnection() {
     return { success: false, provider: EMAIL_PROVIDER, message: 'Email is disabled via EMAIL_ENABLED=false' };
   }
 
+  if (EMAIL_PROVIDER === 'brevo' || BREVO_API_KEY) {
+    return { success: true, provider: 'brevo', message: 'Brevo HTTPS API key configured' };
+  }
+
   if (EMAIL_PROVIDER === 'resend') {
     if (!RESEND_API_KEY) return { success: false, provider: 'resend', message: 'RESEND_API_KEY is missing in .env' };
     return { success: true, provider: 'resend', message: 'Resend API key configured' };
@@ -155,7 +189,24 @@ async function attemptSend(log) {
   const targetEmail = EMAIL_OVERRIDE || log.toEmail;
   const targetSubject = EMAIL_OVERRIDE ? `[To: ${log.toEmail}] ${log.subject}` : log.subject;
 
-  // Option 1: If EMAIL_PROVIDER is resend, use Resend HTTPS API (works on all cloud hosts)
+  // Option 1: If EMAIL_PROVIDER is brevo, use Brevo HTTPS API (works globally without sandbox restrictions)
+  if ((EMAIL_PROVIDER === 'brevo' || BREVO_API_KEY) && BREVO_API_KEY) {
+    try {
+      await sendViaBrevo({ to: targetEmail, subject: targetSubject, html: log.body });
+      return prisma.emailLog.update({
+        where: { id: log.id },
+        data: { status: 'SENT', attempts: { increment: 1 }, lastError: null },
+      });
+    } catch (err) {
+      console.error(`[email.service] Brevo send failed for log ${log.id}:`, err.message);
+      return prisma.emailLog.update({
+        where: { id: log.id },
+        data: { status: 'FAILED', attempts: { increment: 1 }, lastError: err.message },
+      });
+    }
+  }
+
+  // Option 2: If EMAIL_PROVIDER is resend, use Resend HTTPS API (works on all cloud hosts)
   if (EMAIL_PROVIDER === 'resend' && RESEND_API_KEY) {
     try {
       await sendViaResend({ to: targetEmail, subject: targetSubject, html: log.body });

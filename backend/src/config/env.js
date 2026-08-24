@@ -35,14 +35,15 @@ module.exports = {
   GEMINI_API_KEY: cleanString(process.env.GEMINI_API_KEY),
 
   // Email Configuration
-  // EMAIL_PROVIDER: 'resend' | 'gmail' | 'smtp'
+  // EMAIL_PROVIDER: 'resend' | 'brevo' | 'gmail' | 'smtp'
   EMAIL_PROVIDER: cleanString(
     process.env.EMAIL_PROVIDER ||
-      (process.env.RESEND_API_KEY ? 'resend' : GMAIL_USER ? 'gmail' : 'smtp')
+      (process.env.BREVO_API_KEY ? 'brevo' : process.env.RESEND_API_KEY ? 'resend' : GMAIL_USER ? 'gmail' : 'smtp')
   ).toLowerCase(),
   GMAIL_USER,
   GMAIL_APP_PASSWORD,
   RESEND_API_KEY: cleanString(process.env.RESEND_API_KEY),
+  BREVO_API_KEY: cleanString(process.env.BREVO_API_KEY),
   SMTP_HOST: cleanString(process.env.SMTP_HOST),
   SMTP_PORT: Number(process.env.SMTP_PORT || 587),
   SMTP_USER: cleanString(process.env.SMTP_USER || GMAIL_USER),
