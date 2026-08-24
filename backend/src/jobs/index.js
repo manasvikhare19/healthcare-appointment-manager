@@ -45,7 +45,17 @@ function startBackgroundJobs() {
     }
   });
 
-  console.log('[jobs] background jobs scheduled (email retry, slot cleanup, medication reminders, appointment reminders)');
+  // Every 10 minutes: Self-ping health check to prevent Render free-tier cold starts
+  cron.schedule('*/10 * * * *', async () => {
+    const targetUrl = process.env.RENDER_EXTERNAL_URL || process.env.HOSTED_URL || `http://localhost:${process.env.PORT || 4000}`;
+    try {
+      await fetch(`${targetUrl}/api/health`);
+    } catch (e) {
+      // ignore
+    }
+  });
+
+  console.log('[jobs] background jobs scheduled (email retry, slot cleanup, medication reminders, appointment reminders, keep-alive)');
 }
 
 module.exports = { startBackgroundJobs };
