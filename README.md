@@ -197,14 +197,20 @@ Open your browser and navigate to **`http://localhost:5173`**.
 
 ## Gmail / Email Configuration Guide
 
-The application supports multiple email providers configured in `backend/.env`.
+The application provides a resilient, multi-provider notification engine configured in `backend/.env`.
 
-### Setting up Gmail (Recommended for Live Email Testing)
+### Direct Dynamic Client Routing
+- **Automatic Recipient Targeting:** Every notification (booking confirmations, reschedules, cancellations, 24h reminders, medication reminders, and doctor consultation notes) is automatically dispatched to the **exact email address of the client who logged in and booked the visit** (`appointment.patient.email`).
+- **Optional Staging Override (`EMAIL_OVERRIDE`):** In local development or testing, you can optionally set `EMAIL_OVERRIDE=your-test-email@gmail.com` to funnel all outbound emails to a single test inbox. In production, leave `EMAIL_OVERRIDE` unset so each patient and doctor receives their emails directly.
+
+### Setting up Gmail (Recommended for Real-World Universal Delivery)
+With Gmail, emails can be delivered to **any recipient email address in the world** without requiring custom domain DNS verification.
+
 1. Go to your **[Google Account Security Settings](https://myaccount.google.com/security)** and ensure **2-Step Verification** is enabled.
 2. Visit **[Google App Passwords](https://myaccount.google.com/apppasswords)**.
 3. Select App: **Mail**, Device: **Other (Custom name)** e.g., `Clinic App`, and click **Generate**.
 4. Copy the generated 16-character password (e.g. `abcd efgh ijkl mnop`).
-5. In `backend/.env`, set:
+5. In `backend/.env` (or Render Environment Variables), set:
    ```env
    EMAIL_PROVIDER=gmail
    GMAIL_USER=your-actual-email@gmail.com
@@ -215,19 +221,20 @@ The application supports multiple email providers configured in `backend/.env`.
 6. Verify your connection in real time: Go to **Admin Panel > Notification Log > Send Test Email** to send an instant verification email!
 
 ### Setting up Generic SMTP / SendGrid / Resend
-- **SendGrid / Mailgun / SMTP:**
+- **Resend (HTTPS API - Ideal for Render Free Tier):**
+  ```env
+  EMAIL_PROVIDER=resend
+  RESEND_API_KEY=re_xxxxxxxxxxxx
+  SMTP_FROM="Meridian Clinic <onboarding@resend.dev>"
+  ```
+  *(Note: On Resend's free test tier `onboarding@resend.dev`, emails deliver to your registered Resend account email unless a custom domain is verified).*
+- **SendGrid / Mailgun / Standard SMTP:**
   ```env
   EMAIL_PROVIDER=smtp
   SMTP_HOST=smtp.sendgrid.net
   SMTP_PORT=587
   SMTP_USER=apikey
   SMTP_PASS=your-sendgrid-api-key
-  ```
-- **Resend (HTTPS API - Ideal for Render Free Tier):**
-  ```env
-  EMAIL_PROVIDER=resend
-  RESEND_API_KEY=re_xxxxxxxxxxxx
-  SMTP_FROM="Meridian Clinic <onboarding@resend.dev>"
   ```
 - **Dev-Mode Fallback:** If no credentials are configured, the platform logs all formatted HTML emails to the server console and durable `EmailLog` database table without throwing errors.
 
